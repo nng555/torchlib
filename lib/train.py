@@ -11,19 +11,20 @@ import argparse
 import numpy as np
 
 from torchlib.model.cnn import cnn
+from torchlib.model.ordres import ordres
 from torchlib.data.embryoDataset import embryoDataset
-
 
 def train(conf):
    widgets = [Percentage(), ' ', Bar(marker='=',left='[',right=']'),
                    ' ', ETA(), ' ', FileTransferSpeed()]
    train_dataset = embryoDataset(
          'train',
-         transform=transforms.Compose(
+         transform=transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            tranfsorms.RandomCrop(200, 0),
-            transforms.toTensor()
-         ))
+            transforms.RandomCrop(200, 0),
+            transforms.ToTensor(),
+            RandomRotate(180),
+         ]))
    val_dataset = embryoDataset('val', transform=transforms.ToTensor())
 
    train_loader = DataLoader(dataset=train_dataset,
@@ -34,14 +35,15 @@ def train(conf):
          shuffle=False)
    if conf['conf_file'] == 'resnet50':
       models.resnet.model_urls['resnet50'] = 'http://download.pytorch.org/models/resnet50-19c8e357.pth'
-      model = models.resnet50(pretrained=True)
-      num_ftrs = model.fc.in_features
-      model.fc = nn.Linear(num_ftrs, 15)
+      resnet = models.resnet50(pretrained=True)
+      num_ftrs = resnet.fc.in_features
+      resnet.fc = nn.Linear(num_ftrs, 6)
+      model = ordres(resnet)
    else:
       model = cnn('/home/nathan/torchlib/config/' + conf['conf_file'])
 
    if(conf['loss'] == 'xentropy'):
-      criterion = nn.CrossEntropyLoss()
+      criterion = nn.BCELoss()
       optimizer = torch.optim.Adam(model.parameters(), lr=conf['lr'])
 
    model.cuda()
@@ -52,7 +54,7 @@ def train(conf):
       pbar = ProgressBar(widgets=widgets, maxval=num_batches)
       pbar.start()
       loss_acm = 0
-      acc_acm = 0
+      #acc_acm = 0
       for i, (frames, times, labels) in enumerate(train_loader):
          frames = Variable(frames.cuda())
          times = Variable(times.cuda())
@@ -60,7 +62,7 @@ def train(conf):
 
          optimizer.zero_grad()
          outputs = model(frames)
-         _, preds = torch.max(outputs.data, 1)
+         #_, preds = torch.max(outputs.data, 1)
          loss = criterion(outputs, labels)
          loss.backward()
          optimizer.step()
@@ -72,26 +74,26 @@ def train(conf):
          #            %(epoch+1, conf['nb_epoch'], i+1, len(train_dataset)//conf['batch_size'], loss.data[0]))
 
          loss_acm += loss.data[0]
-         acc_acm += torch.sum(preds == labels.data)
+         #acc_acm += torch.sum(preds == labels.data)
 
+      pbar.finish()
       epoch_loss = loss_acm/len(train_dataset)
-      epoch_tacc = 1.0*acc_acm/len(train_dataset)
+      #epoch_tacc = 1.0*acc_acm/len(train_dataset)
       model.eval()
       correct = 0
       for images, times, labels in val_loader:
          images = Variable(images.cuda())
          outputs = model(images)
-         _, predicted = torch.max(outputs.data, 1)
-         correct += (labels.cpu().eq(predicted.cpu().long())).sum()
-      epoch_vacc = 1.0*correct/len(val_dataset)
-      print ('Epoch [%d/%d], Loss: %.4f, Train Acc: %.4f, Val Acc: %.4f'
-               %(epoch+1, conf['nb_epoch'], epoch_loss, epoch_tacc, epoch_vacc))
-      torch.save(model.state_dict(), '/data2/nathan/embryo/model/resnet' + str(conf['lr']) + str(epoch) + '.model')
+         vloss += criterion(outputs, labels).data[0]
+         #_, predicted = torch.max(outputs.data, 1)
+         #correct += (labels.cpu().eq(predicted.cpu().long())).sum()
+      #epoch_vacc = 1.0*correct/len(val_dataset)
+      #print ('Epoch [%d/%d], Loss: %.4f, Train Acc: %.4f, Val Acc: %.4f'
+            #%(epoch+1, conf['nb_epoch'], epoch_loss, epoch_tacc, epoch_vacc))
+      print ('Epoch [%d/%d], Loss: %.4f, Val Loss: %.4f'
+            %(epoch+1, conf['nb_epoch'], epoch_loss, 1.0*vloss/len(val_dataset)))
+      torch.save(model.state_dict(), '/home/ubuntu/model/resnet' + str(conf['lr']) + str(epoch) + '.model')
       model.train(True)
-      pbar.finish()
-
-
-   print('Test Accuracy of the model on the test images: %d %%' % (100 * correct / total))
 
 if __name__ == "__main__":
    parser = argparse.ArgumentParser()
