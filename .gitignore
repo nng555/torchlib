@@ -1,0 +1,5 @@
+*.lprof
+*.prof
+*.py
+.ipynb_checkpoints
+lib/video*
