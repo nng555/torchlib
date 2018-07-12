@@ -1,3 +1,7 @@
+'''
+A class that extends Dataset functionality for grouping embryo images.
+'''
+
 import torch
 import torch.utils.data as data
 import torchvision.datasets as datasets
@@ -7,6 +11,19 @@ import numpy as np
 import cv2
 
 class embryoDataset(data.Dataset):
+
+   '''
+   Initialize data loader
+
+   cut         -   if True, only use embryos that reach the final stages of development
+                   if False, use all embryo images
+   dset        -   name of the dataset to use (in this case "embryo")
+   in_channels -   number of images to stack together
+   root_dir    -   base directory of dataset
+   transform   -   transforms to apply to the training set
+   fusion      -   whether this model is a fusion net or not
+   '''
+
    def __init__(self, cut, dset, in_channels, root_dir='/data2/nathan/embryo/', transform=None, fusion=False):
       self.root_dir = root_dir
       self.dset = dset
@@ -19,6 +36,13 @@ class embryoDataset(data.Dataset):
          self.label = np.load(root_dir + dset + '/labelRawIndex.npy')
       self.in_channels = in_channels
       self.fusion = fusion
+
+   '''
+   Actual data loading function. Concatenates multiple frames if number of in_channels is
+   larger than 1 otherise simply transforms and returns the single frame. If previous or next
+   frames are not from the same embryo, the last valid frame is repeated to fill the remaining
+   channels.
+   '''
 
    def __getitem__(self, idx):
       if(self.in_channels != 1):
@@ -46,15 +70,14 @@ class embryoDataset(data.Dataset):
 
          if self.transform is not None:
             frame = [self.transform(Image.fromarray(img)).narrow(0, 0, 1) for img in frame]
-         #frame = torch.stack(tuple(frame), dim=0)
       else:
-         #frame = cv2.cvtColor(self.feat[idx][0], cv2.COLOR_BGR2GRAY)
-         #frame = np.reshape(frame, (len(frame), len(frame[0]), 1))
+         # for a single frame, narrow it and transform
          if self.transform is not None:
             frame = self.transform(Image.fromarray(self.feat[idx][0])).narrow(0, 0, 1)
          frame = [frame]
          times = [self.feat[idx][1]]
 
+      # get the label and transition to return
       label = self.label[idx]
       transition = False
       if (idx - 1) > 0 and self.label[idx - 1] < self.label[idx]:
